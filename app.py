@@ -4,6 +4,7 @@ from email.message import EmailMessage
 import ssl
 import smtplib
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -13,6 +14,8 @@ from selenium.common.exceptions import TimeoutException
 from PIL import Image
 import time
 import shutil
+import subprocess
+import sys
 
 # =========================================
 # Credenciales desde st.secrets
@@ -27,13 +30,56 @@ except Exception as e:
     st.stop()
 
 # =========================================
-# Chrome Options for Cloud Environment
+# ChromeDriver Setup for Streamlit Cloud
 # =========================================
-def get_chrome_options():
-    """Get Chrome options optimized for cloud environments"""
+@st.cache_resource
+def setup_chrome_driver():
+    """Setup ChromeDriver for Streamlit Cloud environment"""
+    try:
+        st.info("🔧 Setting up ChromeDriver...")
+        
+        # Check if we're running on Streamlit Cloud
+        if os.path.exists("/usr/bin/chromium"):
+            # Use system chromium
+            chrome_binary = "/usr/bin/chromium"
+        elif os.path.exists("/usr/bin/chromium-browser"):
+            chrome_binary = "/usr/bin/chromium-browser"
+        else:
+            chrome_binary = None
+            
+        # Try to use webdriver-manager to handle ChromeDriver
+        try:
+            from webdriver_manager.chrome import ChromeDriverManager
+            from webdriver_manager.core.os_manager import ChromeType
+            
+            # For Streamlit Cloud, try to install ChromeDriver
+            driver_path = ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+            st.success(f"✅ ChromeDriver installed at: {driver_path}")
+            return driver_path, chrome_binary
+        except Exception as e:
+            st.warning(f"⚠️ WebDriver Manager failed: {e}")
+            
+        # Fallback: manual ChromeDriver setup
+        chromedriver_path = "/usr/bin/chromedriver"
+        if os.path.exists(chromedriver_path):
+            return chromedriver_path, chrome_binary
+            
+        st.error("❌ ChromeDriver not found")
+        return None, chrome_binary
+        
+    except Exception as e:
+        st.error(f"❌ Error setting up ChromeDriver: {e}")
+        return None, None
+
+def get_chrome_options(chrome_binary=None):
+    """Get Chrome options optimized for Streamlit Cloud"""
     chrome_options = Options()
     
-    # Essential options for cloud/headless environments
+    # Set Chrome binary if available
+    if chrome_binary and os.path.exists(chrome_binary):
+        chrome_options.binary_location = chrome_binary
+    
+    # Essential options for cloud environments
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -45,7 +91,6 @@ def get_chrome_options():
     chrome_options.add_argument("--disable-features=TranslateUI")
     chrome_options.add_argument("--disable-ipc-flooding-protection")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--start-maximized")
     chrome_options.add_argument("--disable-extensions")
     chrome_options.add_argument("--disable-default-apps")
     chrome_options.add_argument("--disable-sync")
@@ -54,12 +99,15 @@ def get_chrome_options():
     chrome_options.add_argument("--single-process")
     chrome_options.add_argument("--disable-web-security")
     chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--remote-debugging-port=9222")
     
-    # Memory optimizations
+    # Additional Streamlit Cloud specific options
+    chrome_options.add_argument("--disable-setuid-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--memory-pressure-off")
     chrome_options.add_argument("--max_old_space_size=4096")
     
-    # Disable logging
+    # Logging
     chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
     chrome_options.add_argument("--log-level=3")
@@ -73,24 +121,28 @@ def download_barcode_images(record_ids, username, password):
     """Download barcode images for specific Record IDs from RedCap"""
     driver = None
     try:
-        st.info("Starting Chrome for barcode download...")
+        st.info("🚀 Starting browser for barcode download...")
         
-        chrome_options = get_chrome_options()
+        # Setup ChromeDriver
+        driver_path, chrome_binary = setup_chrome_driver()
+        if not driver_path:
+            st.error("❌ Cannot setup ChromeDriver")
+            return []
         
-        # Create temp directory for downloads
+        chrome_options = get_chrome_options(chrome_binary)
         folder = "codigos_barras"
         os.makedirs(folder, exist_ok=True)
         
-        # Try to initialize the driver
+        # Initialize WebDriver
         try:
-            driver = webdriver.Chrome(options=chrome_options)
+            service = Service(executable_path=driver_path)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
             st.success("✅ Chrome driver initialized successfully")
         except Exception as e:
             st.error(f"❌ Failed to initialize Chrome driver: {e}")
-            st.info("💡 This might be due to missing Chrome browser in the cloud environment.")
             return []
         
-        wait = WebDriverWait(driver, 30)  # Increased timeout
+        wait = WebDriverWait(driver, 30)
 
         # Login to RedCap
         st.info("🔐 Logging into RedCap...")
@@ -98,6 +150,7 @@ def download_barcode_images(record_ids, username, password):
         
         try:
             driver.get(url)
+            st.info("📄 Page loaded successfully")
         except Exception as e:
             st.error(f"❌ Failed to load RedCap URL: {e}")
             return []
@@ -125,7 +178,6 @@ def download_barcode_images(record_ids, username, password):
 
         downloaded_files = []
         progress_bar = st.progress(0)
-        
         total_ids = len(record_ids)
         
         for idx, id_val in enumerate(record_ids):
@@ -134,18 +186,16 @@ def download_barcode_images(record_ids, username, password):
                 
                 target_url = TARGET_URL_TEMPLATE.format(id_val=id_val)
                 driver.get(target_url)
-                
-                # Wait for page to load
                 time.sleep(2)
 
-                # Wait for any loading indicators to disappear
+                # Wait for loading indicators to disappear
                 try:
                     loading_locator = (By.XPATH, "//*[contains(text(),'PIPING DATA')]")
-                    WebDriverWait(driver, 5).until(EC.invisibility_of_element_located(loading_locator))
+                    WebDriverWait(driver, 10).until(EC.invisibility_of_element_located(loading_locator))
                 except TimeoutException:
-                    pass  # No loading indicator found or it disappeared
+                    pass
 
-                # Find the barcode element
+                # Find barcode element
                 try:
                     tr_selector = "tr#barcode-tr"
                     tr_el = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, tr_selector)))
@@ -153,15 +203,14 @@ def download_barcode_images(record_ids, username, password):
                     st.warning(f"⚠️ Barcode element not found for ID: {id_val}")
                     continue
 
-                # Scroll to element and wait
+                # Scroll and screenshot
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tr_el)
                 time.sleep(1.5)
 
-                # Take screenshot
                 screenshot_path = os.path.join(folder, f"{id_val}.png")
                 tr_el.screenshot(screenshot_path)
 
-                # Process and crop image
+                # Process image
                 try:
                     img = Image.open(screenshot_path)
                     w, h = img.size
@@ -173,12 +222,9 @@ def download_barcode_images(record_ids, username, password):
                 except Exception as e:
                     st.error(f"❌ Error processing image for ID {id_val}: {e}")
 
-            except TimeoutException:
-                st.error(f"⏰ Timeout for Record ID: {id_val}")
             except Exception as e:
                 st.error(f"❌ Error processing ID {id_val}: {e}")
             
-            # Update progress bar
             progress_bar.progress((idx + 1) / total_ids)
 
         return downloaded_files
@@ -196,7 +242,7 @@ def download_barcode_images(record_ids, username, password):
                 pass
 
 # =========================================
-# Email Function with Multiple Attachments
+# Email Function
 # =========================================
 def send_email_with_attachments(record_ids, attachment_files, email_receiver):
     """Send email with barcode images as attachments."""
@@ -247,44 +293,49 @@ def send_email_with_attachments(record_ids, attachment_files, email_receiver):
 # =========================================
 # System Check Function
 # =========================================
-def check_system_requirements():
-    """Check if required system components are available"""
-    st.subheader("🔍 System Requirements Check")
+def check_system_status():
+    """Check system status and available browsers"""
+    st.subheader("🔍 System Status Check")
     
     checks = []
     
-    # Check Chrome availability
-    try:
-        chrome_options = Options()
-        chrome_options.add_argument("--headless=new")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        driver = webdriver.Chrome(options=chrome_options)
-        driver.quit()
-        checks.append(("✅", "Chrome Browser", "Available"))
-    except Exception as e:
-        checks.append(("❌", "Chrome Browser", f"Not available: {str(e)[:50]}..."))
+    # Check Chromium
+    if os.path.exists("/usr/bin/chromium"):
+        checks.append(("✅", "Chromium Browser", "/usr/bin/chromium"))
+    elif os.path.exists("/usr/bin/chromium-browser"):
+        checks.append(("✅", "Chromium Browser", "/usr/bin/chromium-browser"))
+    else:
+        checks.append(("❌", "Chromium Browser", "Not found"))
     
-    # Display checks
-    for status, component, message in checks:
-        st.write(f"{status} **{component}**: {message}")
+    # Check ChromeDriver
+    driver_path, _ = setup_chrome_driver()
+    if driver_path:
+        checks.append(("✅", "ChromeDriver", f"Available at {driver_path}"))
+    else:
+        checks.append(("❌", "ChromeDriver", "Not available"))
+    
+    # Display results
+    for status, component, details in checks:
+        st.write(f"{status} **{component}**: {details}")
     
     return all(check[0] == "✅" for check in checks)
 
 # =========================================
 # Streamlit UI
 # =========================================
-st.title("🔬 RedCap Barcode Downloader & Email Sender")
+st.title("🔬 RedCap Barcode Downloader (Fixed for Cloud)")
 st.write("Enter Record IDs to download their barcode images from RedCap and send them via email.")
 
-# System check section
+# System check
 with st.expander("🔧 System Check"):
     if st.button("Run System Check"):
-        system_ok = check_system_requirements()
-        if not system_ok:
-            st.warning("⚠️ Some system requirements are missing. The app may not work properly.")
+        system_ok = check_system_status()
+        if system_ok:
+            st.success("✅ All system requirements are available!")
+        else:
+            st.warning("⚠️ Some system requirements are missing.")
 
-# Main input form
+# Main inputs
 record_ids_input = st.text_input(
     "Enter Record IDs separated by commas", 
     placeholder="e.g., 1,2,3,4,5",
@@ -296,7 +347,7 @@ email_receiver_input = st.text_input(
     placeholder="example@domain.com"
 )
 
-# Processing section
+# Process button
 if st.button("🚀 Download Barcodes & Send Email", type="primary"):
     if not record_ids_input.strip():
         st.error("❌ Please enter at least one Record ID")
@@ -319,14 +370,14 @@ if st.button("🚀 Download Barcodes & Send Email", type="primary"):
             else:
                 st.info(f"🎯 Processing {len(record_ids)} Record IDs: {record_ids}")
                 
-                # Download barcode images
+                # Download images
                 with st.spinner("📥 Downloading barcode images..."):
                     downloaded_files = download_barcode_images(record_ids, redcap_username, redcap_password)
 
                 if downloaded_files:
                     st.success(f"✅ Successfully downloaded {len(downloaded_files)} barcode images!")
 
-                    # Display downloaded images
+                    # Display images
                     st.subheader("📸 Downloaded Barcode Images:")
                     cols = st.columns(min(3, len(downloaded_files)))
                     for i, file_path in enumerate(downloaded_files):
@@ -338,7 +389,7 @@ if st.button("🚀 Download Barcodes & Send Email", type="primary"):
                     # Send email
                     with st.spinner("📧 Sending email..."):
                         if send_email_with_attachments(record_ids, downloaded_files, email_receiver_input):
-                            st.success("✅ Email sent successfully with barcode images attached!")
+                            st.success("✅ Email sent successfully!")
                             
                             # Cleanup
                             try:
@@ -350,40 +401,12 @@ if st.button("🚀 Download Barcodes & Send Email", type="primary"):
                             st.error("❌ Failed to send email")
                 else:
                     st.error("❌ No barcode images were downloaded successfully")
-                    st.info("💡 Try running the system check to identify potential issues.")
 
         except Exception as e:
             st.error(f"❌ Processing error: {e}")
             st.exception(e)
 
-# Information sections
-with st.expander("ℹ️ Troubleshooting"):
-    st.markdown("""
-    **Common Issues & Solutions:**
-    
-    1. **Chrome Driver Error (Status code 127)**:
-       - This usually means Chrome is not installed in the environment
-       - Try running the system check first
-       - Consider using a different deployment platform that supports Chrome
-    
-    2. **Memory Issues**:
-       - Reduce the number of Record IDs processed at once
-       - Try processing 3-5 IDs at a time instead of large batches
-    
-    3. **Timeout Errors**:
-       - Check your internet connection
-       - Verify RedCap credentials are correct
-       - The RedCap server might be slow or unavailable
-    
-    **For Streamlit Cloud deployment**, you may need to:
-    - Use the `packages.txt` file to install Chrome
-    - Add these lines to `packages.txt`:
-      ```
-      chromium-browser
-      chromium-chromedriver
-      ```
-    """)
-
+# Configuration info
 with st.expander("🔧 Current Configuration"):
     st.code(f"""
 RedCap URL: https://redcap.prisma.org.pe/redcap_v14.5.11/
@@ -391,33 +414,26 @@ Project ID: 19
 Event ID: 59
 Page: recepcion_de_muestra
 Email From: {email_sender}
-Email To: (defined in UI)
-Chrome Options: Headless mode optimized for cloud environments
+Environment: Streamlit Cloud (Debian-based)
     """)
 
-# Deployment instructions
-with st.expander("🚀 Deployment Instructions"):
+# Troubleshooting guide
+with st.expander("🚨 Troubleshooting"):
     st.markdown("""
-    **For Streamlit Cloud deployment:**
+    **Current Status:** Fixed package names for Debian/Streamlit Cloud
     
-    1. **Create a `packages.txt` file** in your repository root:
-    ```
-    chromium-browser
-    chromium-chromedriver
-    ```
+    **If you still get errors:**
     
-    2. **Create a `requirements.txt` file**:
-    ```
-    streamlit
-    selenium
-    pillow
-    ```
+    1. **Make sure these files exist in your repo:**
+       - `packages.txt` with: chromium, wget, unzip, xvfb
+       - `requirements.txt` with: streamlit, selenium, pillow, webdriver-manager
     
-    3. **Configure secrets** in Streamlit Cloud:
-    - `redcap_username`: Your RedCap username
-    - `redcap_password`: Your RedCap password  
-    - `email_sender`: Sender email address
-    - `email_password`: App password for sender email
+    2. **Redeploy after adding the files**
     
-    4. **Alternative**: Consider using **Playwright** instead of Selenium for better cloud compatibility.
+    3. **Alternative: Use different platform:**
+       - Railway.app (better browser support)
+       - Heroku (full Linux environment)  
+       - Local development environment
+    
+    **Package names tested for Streamlit Cloud (Debian 11 Bullseye)**
     """)

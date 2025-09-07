@@ -1,3 +1,4 @@
-chromium-browser
-chromium-chromedriver
+chromium
+wget
+unzip
 xvfb
