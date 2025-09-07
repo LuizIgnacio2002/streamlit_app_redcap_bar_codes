@@ -14,6 +14,7 @@ from selenium.common.exceptions import TimeoutException
 from PIL import Image
 import time
 import shutil
+import zipfile  # ← MISSING IMPORT
 
 # =========================================
 # Credenciales desde st.secrets
@@ -197,11 +198,53 @@ def download_barcode_images(record_ids, username, password):
                 pass
 
 # =========================================
-# Email Function with Multiple Attachments
+# ZIP Creation Function - MISSING FUNCTION
 # =========================================
-def send_email_with_attachments(record_ids, attachment_files, email_receiver):
-    """Send email with barcode images as attachments."""
+def create_zip_file(attachment_files, record_ids):
+    """Create a ZIP file containing all barcode images."""
     try:
+        # Create ZIP filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"codigos_barras_redcap_{timestamp}.zip"
+        zip_path = os.path.join("codigos_barras", zip_filename)
+        
+        st.info(f"📦 Creating ZIP file: {zip_filename}")
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in attachment_files:
+                if os.path.exists(file_path):
+                    # Add file to ZIP with just the filename (not full path)
+                    filename = os.path.basename(file_path)
+                    zipf.write(file_path, filename)
+                    
+        # Verify ZIP was created successfully
+        if os.path.exists(zip_path):
+            zip_size = os.path.getsize(zip_path) / (1024 * 1024)  # Size in MB
+            st.success(f"✅ ZIP file created successfully: {zip_filename} ({zip_size:.2f} MB)")
+            return zip_path
+        else:
+            st.error("❌ Failed to create ZIP file")
+            return None
+            
+    except Exception as e:
+        st.error(f"❌ Error creating ZIP file: {e}")
+        return None
+
+# =========================================
+# Email Function with ZIP Attachment - MISSING FUNCTION
+# =========================================
+def send_email_with_zip(record_ids, attachment_files, email_receiver):
+    """Send email with barcode images as a ZIP file attachment."""
+    try:
+        # First create the ZIP file
+        zip_path = create_zip_file(attachment_files, record_ids)
+        
+        if not zip_path or not os.path.exists(zip_path):
+            st.error("❌ Could not create ZIP file for email")
+            return False
+        
+        # Create email
         em = EmailMessage()
         em['From'] = email_sender
         em['To'] = email_receiver
@@ -215,7 +258,10 @@ def send_email_with_attachments(record_ids, attachment_files, email_receiver):
             <ul>
                 {"".join([f"<li>Record ID: {rid}</li>" for rid in record_ids])}
             </ul>
-            <p>Total de imágenes adjuntas: {len(attachment_files)}</p>
+            <p><strong>Total de imágenes procesadas:</strong> {len(attachment_files)}</p>
+            <p><strong>Archivo adjunto:</strong> {os.path.basename(zip_path)} (formato ZIP)</p>
+            <br>
+            <p><em>💡 Para ver las imágenes, descarga y descomprime el archivo ZIP adjunto.</em></p>
             <br>
             <p><em>Enviado desde la app de Streamlit RedCap 🚀</em></p>
           </body>
@@ -223,19 +269,20 @@ def send_email_with_attachments(record_ids, attachment_files, email_receiver):
         """
         em.add_alternative(html_body, subtype="html")
 
-        for file_path in attachment_files:
-            if os.path.exists(file_path):
-                with open(file_path, "rb") as f:
-                    filename = os.path.basename(file_path)
-                    em.add_attachment(
-                        f.read(),
-                        maintype="image",
-                        subtype="png",
-                        filename=filename
-                    )
+        # Add ZIP file as attachment
+        with open(zip_path, "rb") as f:
+            zip_filename = os.path.basename(zip_path)
+            em.add_attachment(
+                f.read(),
+                maintype="application",
+                subtype="zip",
+                filename=zip_filename
+            )
 
+        # Send email
+        st.info("📧 Sending email with ZIP attachment...")
         context = ssl.create_default_context()
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context, timeout=10) as smtp:
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, context=context, timeout=30) as smtp:
             smtp.login(email_sender, email_password)
             smtp.sendmail(email_sender, email_receiver, em.as_string())
 
@@ -439,10 +486,19 @@ if record_ids:
                             if os.path.exists(file_path):
                                 st.image(file_path, caption=f"ID: {os.path.basename(file_path).split('.')[0]}")
 
-                    # Send email
-                    with st.spinner("📧 Sending email..."):
-                        if send_email_with_attachments(record_ids, downloaded_files, email_receiver_input):
-                            st.success("✅ Email sent successfully with barcode images attached!")
+                    # Send email with ZIP - UPDATED CALL
+                    with st.spinner("📧 Creating ZIP file and sending email..."):
+                        if send_email_with_zip(record_ids, downloaded_files, email_receiver_input):
+                            st.success("✅ Email sent successfully with barcode images ZIP file attached!")
+                            
+                            # Show ZIP info
+                            zip_files = [f for f in os.listdir("codigos_barras") if f.endswith('.zip')]
+                            if zip_files:
+                                zip_file = zip_files[0]
+                                zip_path = os.path.join("codigos_barras", zip_file)
+                                if os.path.exists(zip_path):
+                                    zip_size = os.path.getsize(zip_path) / (1024 * 1024)
+                                    st.info(f"📦 ZIP file details: {zip_file} ({zip_size:.2f} MB)")
                             
                             # Cleanup
                             try:
@@ -485,6 +541,11 @@ with st.expander("ℹ️ Troubleshooting"):
        - Ensure your CSV has a column named exactly 'record_id'
        - Make sure record IDs are numeric values
        - Check for extra spaces or special characters
+    
+    5. **ZIP Email Issues**:
+       - Check email attachment size limits (usually 25MB for Gmail)
+       - Verify email credentials are correct
+       - Try with fewer record IDs if ZIP file is too large
     
     **For Streamlit Cloud deployment**, you may need to:
     - Use the `packages.txt` file to install Chrome
