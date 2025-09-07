@@ -255,7 +255,7 @@ def process_csv_upload():
     # Show example format
     with st.expander("📄 CSV Format Example"):
         example_data = pd.DataFrame({
-            "record_id": ["101", "1154", "1190", "1195"]
+            "record_id": ["101", "102", "103", "105"]
         })
         st.dataframe(example_data, use_container_width=True, hide_index=True)
         
@@ -505,6 +505,7 @@ Email From: {email_sender}
 Email To: (defined in UI)
 Chrome Options: Headless mode optimized for cloud environments
 CSV Support: record_id column required
+Email Format: ZIP file attachment with all barcode images
     """)
 
 # Deployment instructions
