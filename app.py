@@ -255,7 +255,7 @@ def process_csv_upload():
     # Show example format
     with st.expander("📄 CSV Format Example"):
         example_data = pd.DataFrame({
-            "record_id": ["101", "1154", "1190", "1196"]
+            "record_id": ["101", "1154", "1190", "1195"]
         })
         st.dataframe(example_data, use_container_width=True, hide_index=True)
         
