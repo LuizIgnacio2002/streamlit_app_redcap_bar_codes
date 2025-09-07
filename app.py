@@ -254,13 +254,17 @@ def send_email_with_zip(record_ids, attachment_files, email_receiver):
         <html>
           <body>
             <h2>Códigos de Barras Descargados</h2>
+            <p>Se han descargado los códigos de barras para los siguientes Record IDs:</p>
+            <ul>
+                {"".join([f"<li>Record ID: {rid}</li>" for rid in record_ids])}
+            </ul>
             <p><strong>Total de imágenes procesadas:</strong> {len(attachment_files)}</p>
             <p><strong>Archivo adjunto:</strong> {os.path.basename(zip_path)} (formato ZIP)</p>
             <br>
             <p><em>💡 Para ver las imágenes, descarga y descomprime el archivo ZIP adjunto.</em></p>
             <br>
-            <p>Nota: La imagen 5.png corresponde al record_id 5 del proyecto PRESIENTE LAB MUESTRAS HUMANAS y así con cada imagen dentro del zip<p>
-            <p><em>Enviado desde la aplicación de Streamlit</em></p>
+            <p>Nota: La imagen 5.png corresponde al record_id 5 del proyecto PRESIENTE LAB MUESTRAS HUMANAS<p>
+            <p><em>Enviado desde la aplicación de Streamlit RedCap 🚀</em></p>
           </body>
         </html>
         """
@@ -299,7 +303,7 @@ def process_csv_upload():
     # Mostrar formato de ejemplo
     with st.expander("📄 Ejemplo de Formato CSV"):
         example_data = pd.DataFrame({
-            "record_id": ["1", "1048", "1049", "1055"]
+            "record_id": ["101", "102", "103", "105"]
         })
         st.dataframe(example_data, use_container_width=True, hide_index=True)
         
@@ -397,7 +401,7 @@ def check_system_requirements():
 # =========================================
 # Interfaz de Usuario de Streamlit
 # =========================================
-st.markdown("<h1 style='font-size: 20px;'>Descargar códigos de barras de RedCap (PRESIENTE LAB MUESTRAS HUMANAS) y envío por Email</h1>", unsafe_allow_html=True)
+st.title("🔬 Descargador de Códigos de Barras de RedCap y Envío por Email")
 st.write("Ingresa Record IDs manualmente o carga un archivo CSV para descargar imágenes de códigos de barras desde RedCap y enviarlas por email.")
 
 # Sección de verificación del sistema
