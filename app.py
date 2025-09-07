@@ -397,7 +397,7 @@ def check_system_requirements():
 # =========================================
 # Interfaz de Usuario de Streamlit
 # =========================================
-st.title("Descargador de Códigos de Barras de RedCap (PRESIENTE LAB MUESTRAS HUMANAS) y envío por Email")
+st.markdown("<h1 style='font-size: 20px;'>Descargar códigos de barras de RedCap (PRESIENTE LAB MUESTRAS HUMANAS) y envío por Email</h1>", unsafe_allow_html=True)
 st.write("Ingresa Record IDs manualmente o carga un archivo CSV para descargar imágenes de códigos de barras desde RedCap y enviarlas por email.")
 
 # Sección de verificación del sistema
