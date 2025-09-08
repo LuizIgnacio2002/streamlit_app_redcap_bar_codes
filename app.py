@@ -250,7 +250,7 @@ def send_email_with_zip(record_ids, attachment_files, email_receiver):
         em = EmailMessage()
         em['From'] = email_sender
         em['To'] = email_receiver
-        em['Subject'] = f"Códigos de Barras RedCap - IDs: {', '.join(map(str, record_ids))}"
+        em['Subject'] = f"Códigos de Barras RedCap Presiente Lab Muestras Humanas"
 
         html_body = f"""
         <html>
