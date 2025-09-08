@@ -140,7 +140,7 @@ def download_barcode_images(record_ids, username, password):
                 driver.get(target_url)
                 
                 # Esperar a que la página se cargue
-                time.sleep(2)
+                WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody")))
 
                 # Esperar a que desaparezcan los indicadores de carga
                 try:
@@ -159,7 +159,7 @@ def download_barcode_images(record_ids, username, password):
 
                 # Hacer scroll al elemento y esperar
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", tr_el)
-                time.sleep(1.5)
+                time.sleep(1.4)
 
                 # Tomar captura de pantalla
                 screenshot_path = os.path.join(folder, f"{id_val}.png")
